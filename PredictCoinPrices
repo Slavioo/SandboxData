@@ -1,0 +1,63 @@
+# Set the API endpoint and parameters
+$apiEndpoint = "https://api.coingecko.com/api/v3/coins/"
+$coinId = "bitcoin"
+$vsCurrency = "usd"
+$days = 365
+
+# Fetch the historical altcoin prices from the API
+$historicalData = Invoke-RestMethod -Uri "$apiEndpoint/$coinId/market_chart?vs_currency=$vsCurrency&days=$days"
+
+# Extract the price data and convert it to an array of dates and prices
+$priceData = $historicalData.prices | ForEach-Object {
+    $date = [datetime]::FromFileTimeUtc($_[0]/1000)
+    $price = $_[1]
+    [pscustomobject]@{ Date = $date; Price = $price }
+}
+
+# Define a function to perform linear regression and predict future prices
+function Predict-Prices {
+    param (
+        [Parameter(Mandatory=$true)]
+        [System.Collections.ArrayList]$Data,
+
+        [Parameter(Mandatory=$true)]
+        [int]$NumDays
+    )
+
+    # Convert the data to a matrix format
+    $x = $Data | Select-Object -ExpandProperty Date | ForEach-Object { [double]([int]$_) }
+    $y = $Data | Select-Object -ExpandProperty Price | ForEach-Object { [double]$_ }
+    $xMat = [math]::MatrixBuild::Ones($x.Length, 2)
+    $xMat[:, 1] = [math]::MatrixBuild::From($x)
+    $yMat = [math]::MatrixBuild::From($y)
+
+    # Perform linear regression using matrix algebra
+    $xTx = $xMat.Transpose() * $xMat
+    $det = $xTx.Det()
+    if ($det -eq 0) {
+        throw "Singular matrix, cannot be inverted"
+    }
+    $ws = $xTx.Inverse() * $xMat.Transpose() * $yMat
+
+    # Use the regression coefficients to predict future prices
+    $startDate = $Data[-1].Date
+    $endDate = $startDate.AddDays($NumDays)
+    $futureDates = [System.Collections.ArrayList]::new()
+    $futurePrices = [System.Collections.ArrayList]::new()
+    for ($i = 0; $i -lt $NumDays; $i++) {
+        $futureDate = $endDate.AddDays($i)
+        $futureDates.Add($futureDate)
+        $futurePrice = $ws[0] + $ws[1] * ($futureDate - $startDate).Days
+        $futurePrices.Add($futurePrice)
+    }
+
+    # Return the predicted prices as an array of dates and prices
+    [pscustomobject]@{ Date = $futureDates.ToArray(); Price = $futurePrices.ToArray() }
+}
+
+# Predict the altcoin prices for the next 10 months
+$futurePrices = Predict-Prices -Data $priceData -NumDays 300
+
+# Output the result
+Write-Host "Predicted altcoin prices for the next 10 months:"
+$futurePrices | Select-Object -Last 10
