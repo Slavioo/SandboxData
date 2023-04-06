@@ -1,0 +1,53 @@
+# Import the required modules for time-series forecasting
+Import-Module -Name Microsoft.PowerShell.Utility
+Import-Module -Name Microsoft.PowerShell.Management
+Import-Module -Name Microsoft.PowerShell.Security
+
+# Define the API endpoint and parameters
+$endpoint = "https://api.exchange.com/v1/prices"
+$params = @{
+    api_key = "your_api_key"
+    altcoins = "top100"
+    start_date = "2015-01-01"
+    end_date = "2023-04-06"
+}
+
+# Make a request to the API and retrieve the price data
+$response = Invoke-RestMethod -Uri $endpoint -Method GET -Body $params
+
+# Enrich the dataset with a prediction based on the difference between medium-term and long-term moving averages
+foreach ($altcoin in $response.data) {
+    # Calculate the medium-term moving average (e.g. 50 days)
+    $medium_term = $altcoin.prices | Select-Object -Last 50 | Measure-Object -Average | Select-Object -ExpandProperty Average
+
+    # Calculate the long-term moving average (e.g. 200 days)
+    $long_term = $altcoin.prices | Select-Object -Last 200 | Measure-Object -Average | Select-Object -ExpandProperty Average
+
+    # Predict the price difference based on the difference between the medium-term and long-term moving averages
+    if ($medium_term -gt $long_term) {
+        $prediction = "Buy"
+    } elseif ($medium_term -lt $long_term) {
+        $prediction = "Sell"
+    } else {
+        $prediction = "Hold"
+    }
+
+    # Use ARIMA forecasting to estimate the price trend for the next year
+    $historical_data = $altcoin.prices | ConvertTo-Csv -NoTypeInformation | Select-Object -Skip 1 | ConvertFrom-Csv
+    $historical_dates = $historical_data.date
+    $historical_prices = $historical_data.price
+    $forecast_period = 365 # days
+    $forecast_dates = (Get-Date -Date $historical_dates[-1]).AddDays(1)..(Get-Date -Date $historical_dates[-1]).AddDays($forecast_period) | Select-Object -Property @{Name="date";Expression={Get-Date $_ -Format "yyyy-MM-dd"}} | ConvertTo-Csv -NoTypeInformation | Select-Object -Skip 1 | ConvertFrom-Csv
+
+    # Use the ARIMA model to predict the future prices
+    $arima = New-TimeSeriesForecast -InputObject $historical_prices -ForecastType ARIMA -ForecastHorizon $forecast_period
+    $forecast_prices = $arima.ForecastedValues
+
+    # Add the prediction and forecast to the dataset
+    $altcoin | Add-Member -NotePropertyName "prediction" -NotePropertyValue $prediction
+    $altcoin | Add-Member -NotePropertyName "forecast_dates" -NotePropertyValue $forecast_dates.date
+    $altcoin | Add-Member -NotePropertyName "forecast_prices" -NotePropertyValue $forecast_prices
+}
+
+# Save the enriched dataset to a CSV file
+$response.data | Export-Csv -Path "altcoin_prices.csv" -NoTypeInformation
