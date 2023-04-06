@@ -1,0 +1,45 @@
+# Specify the URL for the weather API and the authentication information
+$weatherApiUrl = "https://api.openweathermap.org/data/2.5/forecast"
+$apiKey = "your_api_key"
+
+# Specify the QlikView document filename and path
+$documentName = "WeatherPrediction.qvw"
+$documentPath = "C:\Documents"
+
+# Create a QlikView document object and open it
+$qvDoc = New-Object -ComObject QlikTech.QlikView
+$qvDoc.Open("$documentPath\$documentName")
+
+# Get the weather data from the API
+$weatherData = Invoke-WebRequest -Uri "$weatherApiUrl?q=London,uk&appid=$apiKey&units=metric" | ConvertFrom-Json
+
+# Create a new QlikView table object and add it to the document
+$qvTable = $qvDoc.CreateTable("WeatherTable")
+$qvTable.AddField("Date")
+$qvTable.AddField("Time")
+$qvTable.AddField("Temperature")
+$qvTable.AddField("Description")
+$qvTable.AddField("WindSpeed")
+$qvTable.AddField("Cloudiness")
+
+# Loop through the weather data and add each row to the QlikView table
+foreach ($forecast in $weatherData.list) {
+    $date = $forecast.dt_txt.Split(" ")[0]
+    $time = $forecast.dt_txt.Split(" ")[1]
+    $temperature = $forecast.main.temp
+    $description = $forecast.weather[0].description
+    $windSpeed = $forecast.wind.speed
+    $cloudiness = $forecast.clouds.all
+
+    $row = $qvTable.InsertRow()
+    $row[0] = $date
+    $row[1] = $time
+    $row[2] = $temperature
+    $row[3] = $description
+    $row[4] = $windSpeed
+    $row[5] = $cloudiness
+}
+
+# Save and close the QlikView document
+$qvDoc.Save
+$qvDoc.Close
