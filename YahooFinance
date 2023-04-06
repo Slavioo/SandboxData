@@ -1,0 +1,51 @@
+# Import required modules
+Import-Module ImportExcel
+Install-Module YahooFinance
+
+# Define the coins to analyze
+$coins = @("BTC-USD", "ETH-USD", "ADA-USD", "BNB-USD", "XRP-USD", "SOL1-USD", "DOT1-USD", "DOGE-USD", "LUNA1-USD", "AVAX-USD")
+
+# Define the period to retrieve the data
+$start = Get-Date "2022-04-01"
+$end = $start.AddYears(1)
+
+# Define the window and standard deviations for the Bollinger bands
+$window = 20
+$stddev = 2
+
+# Define the output file name
+$outFile = "bollinger.csv"
+
+# Create an empty array to hold the results
+$results = @()
+
+# Loop through the coins
+foreach ($coin in $coins) {
+    Write-Host "Processing $coin..."
+
+    # Get the historical data for the coin
+    $data = Get-YFHistoricalData -Symbol $coin -StartDate $start -EndDate $end
+
+    # Calculate the moving average and standard deviation
+    $data['MA'] = $data['Close'].rolling($window).mean()
+    $data['StdDev'] = $data['Close'].rolling($window).std()
+
+    # Calculate the upper and lower bands
+    $data['Upper'] = $data['MA'] + $stddev * $data['StdDev']
+    $data['Lower'] = $data['MA'] - $stddev * $data['StdDev']
+
+    # Calculate the RSI
+    $delta = $data['Close'].diff()
+    $gain = $delta.where($delta -lt 0, 0)
+    $loss = -$delta.where($delta -gt 0, 0)
+    $avgGain = $gain.rolling($window).mean()
+    $avgLoss = $loss.rolling($window).mean()
+    $rs = $avgGain / $avgLoss
+    $data['RSI'] = 100 - (100 / (1 + $rs))
+
+    # Add the results to the array
+    $results += $data
+}
+
+# Export the results to a CSV file
+$results | Export-Excel -Path $outFile -AutoSize -NoHeader -Append
