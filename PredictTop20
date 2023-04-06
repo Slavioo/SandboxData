@@ -1,0 +1,52 @@
+# Import required modules
+Import-Module -Name "Invoke-RestMethod"
+
+# Set API endpoint and parameters
+$apiEndpoint = "https://api.coingecko.com/api/v3/coins/markets"
+$params = @{
+    vs_currency = "usd"
+    order = "market_cap_desc"
+    per_page = 20
+}
+
+# Make API request and retrieve prices for top 20 altcoins
+$response = Invoke-RestMethod -Uri $apiEndpoint -Method Get -Body $params
+$prices = $response | Select-Object -Property symbol, current_price
+
+# Calculate moving averages and Bollinger bands for each altcoin
+$days = 20
+foreach ($coin in $prices) {
+    $symbol = $coin.symbol
+    $pricesArray = @()
+    for ($i = $days - 1; $i -lt $prices.Count; $i++) {
+        $pricesSlice = $prices[$i - $days + 1..$i]
+        $pricesAverage = [decimal]($pricesSlice.current_price | Measure-Object -Average).Average
+        $pricesStdDev = [decimal]::Sqrt($pricesSlice.current_price | Measure-Object -Population -Std).StandardDeviation
+        $pricesUpperBollingerBand = $pricesAverage + (2 * $pricesStdDev)
+        $pricesLowerBollingerBand = $pricesAverage - (2 * $pricesStdDev)
+        $pricesArray += [pscustomobject] @{
+            Date = $prices[$i].last_updated
+            Price = $prices[$i].current_price
+            SMA = $pricesAverage
+            UpperBollingerBand = $pricesUpperBollingerBand
+            LowerBollingerBand = $pricesLowerBollingerBand
+        }
+    }
+    $coin.pricesArray = $pricesArray
+}
+
+# Make price prediction based on moving averages and Bollinger bands
+$predictionDays = 365
+$volatility = 2
+foreach ($coin in $prices) {
+    $smaLast = $coin.pricesArray[-1].SMA
+    $smaDiff = ($coin.pricesArray[-1].SMA - $coin.pricesArray[-$predictionDays].SMA) / $coin.pricesArray[-$predictionDays].SMA
+    $bollingerBandLast = $coin.pricesArray[-1].UpperBollingerBand
+    $bollingerBandDiff = ($coin.pricesArray[-1].UpperBollingerBand - $coin.pricesArray[-$predictionDays].UpperBollingerBand) / $coin.pricesArray[-$predictionDays].UpperBollingerBand
+    $volatilityLast = [decimal]($coin.pricesArray[-$volatility..-1].Price | Measure-Object -Population -Std).StandardDeviation
+    $predictedPrice = $smaLast * (1 + $smaDiff + $bollingerBandDiff) * [Math]::Exp([Math]::Sqrt($volatilityLast) / 100)
+    $coin.Prediction = $predictedPrice
+}
+
+# Save results to CSV
+$prices | Export-Csv -Path "top-20-altcoins-prices-prediction.csv" -NoTypeInformation
