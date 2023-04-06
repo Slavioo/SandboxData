@@ -1,0 +1,61 @@
+# Install QlikView PowerShell module
+Install-Module -Name QlikView
+
+# Import QlikView PowerShell module
+Import-Module -Name QlikView
+
+# Define CoinGecko API endpoint and parameters
+$apiEndpoint = "https://api.coingecko.com/api/v3/coins/markets"
+$params = @{
+    vs_currency = "usd"
+    per_page = 10
+    order = "market_cap_desc"
+}
+
+# Invoke CoinGecko API to get historical prices for top 10 altcoins
+$response = Invoke-RestMethod -Method Get -Uri $apiEndpoint -Query $params
+
+# Extract historical price data for each altcoin
+$data = foreach ($altcoin in $response) {
+    $altcoinData = Invoke-RestMethod -Method Get -Uri $altcoin.sparkline_in_7d.price
+    [pscustomobject]@{
+        Name = $altcoin.name
+        Symbol = $altcoin.symbol
+        HistoricalPriceData = $altcoinData
+    }
+}
+
+# Calculate moving averages and daily predictions for each altcoin
+$daysInYear = 365
+$predictionDays = 365
+$maShortTerm = 30
+$maMediumTerm = 90
+foreach ($altcoin in $data) {
+    # Calculate moving averages
+    $altcoinData = $altcoin.HistoricalPriceData
+    $maShortTermData = $altcoinData | ConvertTo-QlikViewExpression -Function MovingAvg -Parameters @($maShortTerm)
+    $maMediumTermData = $altcoinData | ConvertTo-QlikViewExpression -Function MovingAvg -Parameters @($maMediumTerm)
+    $altcoin | Add-Member -MemberType NoteProperty -Name "ShortTermMovingAverage" -Value $maShortTermData
+    $altcoin | Add-Member -MemberType NoteProperty -Name "MediumTermMovingAverage" -Value $maMediumTermData
+
+    # Calculate daily predictions for the next year
+    $lastPrice = $altcoinData[-1]
+    $pricePredictions = for ($i = 1; $i -le $predictionDays; $i++) {
+        $maShortTermValue = $maShortTermData[-$i]
+        $maMediumTermValue = $maMediumTermData[-$i]
+        $pricePrediction = $lastPrice + ($maShortTermValue - $maMediumTermValue)
+        [pscustomobject]@{
+            Date = (Get-Date).AddDays($i)
+            Price = $pricePrediction
+        }
+    }
+    $altcoin | Add-Member -MemberType NoteProperty -Name "PricePredictions" -Value $pricePredictions
+}
+
+# Create QlikView document to visualize historical prices, moving averages, and predictions
+$documentPath = "C:\Users\Username\Documents\AltcoinPrices.qvw"
+$qlikView = Connect-QlikView -Path $documentPath
+$sheet = Add-QlikViewSheet -QlikView $qlikView -Name "Altcoin Prices"
+$table = New-QlikViewTable -QlikView $qlikView -Name "Altcoin Data" -Fields @("Name", "Symbol", "HistoricalPriceData", "ShortTermMovingAverage", "MediumTermMovingAverage", "PricePredictions")
+Add-QlikViewChart -QlikView $qlikView -Title "Historical Prices" -Type LineChart -Table $table -Dimensions @("HistoricalPriceData") -Expressions @("Name")
+Add-QlikView
