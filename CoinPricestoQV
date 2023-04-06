@@ -1,0 +1,59 @@
+# Set the path to the QlikView executable
+$QlikViewPath = "C:\Program Files\QlikView\qv.exe"
+
+# Set the path to the QlikView document
+$DocumentPath = "C:\Users\Username\Documents\Altcoin Dashboard.qvw"
+
+# Set the API endpoint and parameters
+$ApiEndpoint = "https://api.coingecko.com/api/v3/coins/markets"
+$ApiParams = @{
+    vs_currency = "usd"
+    order = "market_cap_desc"
+    per_page = 100
+}
+
+# Send a GET request to the API and parse the response JSON
+$ApiResponse = Invoke-RestMethod -Uri $ApiEndpoint -Method Get -Body $ApiParams
+$AltcoinData = $ApiResponse | Select-Object -First 10 | ForEach-Object {
+    [PSCustomObject]@{
+        name = $_.name
+        Date = Get-Date
+        price = $_.current_price
+        short_term_ma = 0
+        medium_term_ma = 0
+    }
+}
+
+# Calculate the short-term and medium-term moving averages
+$ShortTermPeriod = 10
+$MediumTermPeriod = 30
+$AltcoinData | ForEach-Object {
+    $ShortTermData = $AltcoinData | Where-Object { $_.name -eq $_.name -and $_.Date -le $_.Date } | Select-Object -Last $ShortTermPeriod
+    $MediumTermData = $AltcoinData | Where-Object { $_.name -eq $_.name -and $_.Date -le $_.Date } | Select-Object -Last $MediumTermPeriod
+    $_.short_term_ma = ($ShortTermData | Measure-Object -Property price -Average).Average
+    $_.medium_term_ma = ($MediumTermData | Measure-Object -Property price -Average).Average
+}
+
+# Connect to the QlikView document
+$QvDoc = New-Object -ComObject QlikTech.QlikView
+$QvDoc.OpenDoc("$DocumentPath")
+
+# Load the data into the QlikView document
+$QvDoc.ClearAll()
+$QvDoc.Fields("name").SelectValues($AltcoinData | Select-Object -ExpandProperty name -Unique)
+$QvDoc.Fields("Date").SelectValues($AltcoinData | Select-Object -ExpandProperty Date -Unique)
+$QvDoc.ClearAllBut("name", "Date")
+$QvDoc.TableBoxObject("altcoin_table").SetCaption("Altcoin Prices and Moving Averages")
+$QvDoc.TableBoxObject("altcoin_table").SetWidth(1200)
+$QvDoc.TableBoxObject("altcoin_table").SetHeight(800)
+$QvDoc.TableBoxObject("altcoin_table").SetExpression("name")
+$QvDoc.TableBoxObject("altcoin_table").AddDimension("Date")
+$QvDoc.TableBoxObject("altcoin_table").AddExpression("price")
+$QvDoc.TableBoxObject("altcoin_table").AddExpression("short_term_ma")
+$QvDoc.TableBoxObject("altcoin_table").AddExpression("medium_term_ma")
+$QvDoc.TableBoxObject("altcoin_table").AddExpression("short_term_ma - medium_term_ma")
+
+# Save and close the QlikView document
+$QvDoc.Save()
+$QvDoc.CloseDoc()
+$QvDoc = $null
