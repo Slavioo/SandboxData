@@ -1,0 +1,45 @@
+# Set the API endpoint and parameters
+$apiEndpoint = "https://api.coingecko.com/api/v3/coins/markets"
+$vsCurrency = "usd"
+$days = 365
+
+# Fetch the top 100 altcoins by market capitalization
+$coins = Invoke-RestMethod -Uri "$apiEndpoint?vs_currency=$vsCurrency&order=market_cap_desc&per_page=100&page=1"
+
+# Define a function to fetch historical price data for a given coin ID
+function Get-HistoricalData {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$CoinId,
+
+        [Parameter(Mandatory=$true)]
+        [int]$Days,
+
+        [Parameter(Mandatory=$true)]
+        [string]$VsCurrency
+    )
+
+    # Fetch the historical price data from the API
+    $historicalData = Invoke-RestMethod -Uri "https://api.coingecko.com/api/v3/coins/$CoinId/market_chart?vs_currency=$VsCurrency&days=$Days"
+
+    # Extract the price data and convert it to an array of dates and prices
+    $priceData = $historicalData.prices | ForEach-Object {
+        $date = [datetime]::FromFileTimeUtc($_[0]/1000)
+        $price = $_[1]
+        [pscustomobject]@{ Date = $date; Price = $price }
+    }
+
+    # Return the price data as an object
+    [pscustomobject]@{ CoinId = $CoinId; PriceData = $priceData }
+}
+
+# Fetch historical price data for each coin and save it to a CSV file
+$csvPath = "C:\AltcoinData.csv"
+$columns = "CoinId", "Date", "Price"
+$coins | ForEach-Object {
+    $coinId = $_.id
+    $priceData = Get-HistoricalData -CoinId $coinId -Days $days -VsCurrency $vsCurrency
+    $priceData.PriceData | Select-Object @{ Name="CoinId"; Expression={ $coinId } }, Date, Price | Export-Csv -Path $csvPath -Append -NoTypeInformation
+}
+
+Write-Host "Historical altcoin prices saved to $csvPath"
