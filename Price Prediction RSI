@@ -1,0 +1,59 @@
+# Import required modules
+Import-Module -Name "RestMethod"
+
+# Set the API endpoint URL and parameters
+$apiUrl = "https://api.coingecko.com/api/v3/coins/markets"
+$parameters = @{
+    vs_currency = "usd"
+    order = "market_cap_desc"
+    per_page = 10
+}
+
+# Fetch the data from the API
+$coinsData = Invoke-RestMethod -Uri $apiUrl -Method Get -Body $parameters
+
+# Define the time frame for the predictions (365 days)
+$days = 365
+
+# Define the RSI period (14 days)
+$rsiPeriod = 14
+
+# Define the CSV file path and header
+$csvPath = "altcoin_prices_and_predictions_rsi.csv"
+$header = "name,price,prediction"
+
+# Loop through the coins and make predictions based on the RSI indicator
+$predictions = @()
+foreach ($coin in $coinsData) {
+    $name = $coin.name
+    $prices = Invoke-RestMethod -Uri "https://api.coingecko.com/api/v3/coins/$($coin.id)/market_chart" -Method Get -Body @{vs_currency="usd";days=$days}
+    $rsiValues = New-Object System.Collections.ArrayList
+    $rsiIndex = 0
+    while ($rsiIndex -lt $days) {
+        $pricesSubset = $prices.prices[$rsiIndex..($rsiIndex+$rsiPeriod-1)]
+        $gainValues = @()
+        $lossValues = @()
+        for ($i = 1; $i -lt $pricesSubset.Count; $i++) {
+            $diff = $pricesSubset[$i][1] - $pricesSubset[$i-1][1]
+            if ($diff -gt 0) {
+                $gainValues += $diff
+                $lossValues += 0
+            } else {
+                $gainValues += 0
+                $lossValues += -$diff
+            }
+        }
+        $avgGain = $gainValues | Measure-Object -Average | Select-Object -ExpandProperty Average
+        $avgLoss = $lossValues | Measure-Object -Average | Select-Object -ExpandProperty Average
+        $rs = if ($avgLoss -eq 0) { 100 } else { 100 - (100 / (1 + $avgGain / $avgLoss)) }
+        $rsiValues.Add($rs) | Out-Null
+        $rsiIndex += 1
+    }
+    $rsi = $rsiValues[$rsiValues.Count-1]
+    $prediction = if ($rsi -lt 30) { "buy" } elseif ($rsi -gt 70) { "sell" } else { "hold" }
+    $predictions += "$name,$($coin.current_price),$prediction"
+}
+
+# Save the predictions to a CSV file
+$predictions | Out-File -FilePath $csvPath -Encoding utf8 -Append
+$header | Out-File -FilePath $csvPath -Encoding utf8 -Prepend
