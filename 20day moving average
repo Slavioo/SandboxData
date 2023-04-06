@@ -1,0 +1,22 @@
+# Set the API endpoint and parameters
+$apiEndpoint = "https://api.coingecko.com/api/v3/coins/markets"
+$vsCurrency = "usd"
+$days = 20
+
+# Fetch the altcoin prices from the API
+$altcoinData = Invoke-RestMethod -Uri "$apiEndpoint?vs_currency=$vsCurrency&order=market_cap_desc&per_page=250&page=1&sparkline=false"
+
+# Filter out the top 20 altcoins
+$altcoins = $altcoinData | Select-Object -First 20
+
+# Calculate the moving average
+$sum = 0
+
+for ($i = 0; $i -lt $days; $i++) {
+    $sum += $altcoins[$i].current_price
+}
+
+$movingAverage = $sum / $days
+
+# Output the result
+Write-Host "20-day moving average of altcoin prices: $movingAverage"
