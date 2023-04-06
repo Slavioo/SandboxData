@@ -1,0 +1,35 @@
+# Define the API endpoint and parameters
+$endpoint = "https://api.exchange.com/v1/prices"
+$params = @{
+    api_key = "your_api_key"
+    altcoins = "top100"
+    start_date = "2015-01-01"
+    end_date = "2023-04-06"
+}
+
+# Make a request to the API and retrieve the price data
+$response = Invoke-RestMethod -Uri $endpoint -Method GET -Body $params
+
+# Enrich the dataset with a prediction based on the difference between medium-term and long-term moving averages
+foreach ($altcoin in $response.data) {
+    # Calculate the medium-term moving average (e.g. 50 days)
+    $medium_term = $altcoin.prices | Select-Object -Last 50 | Measure-Object -Average | Select-Object -ExpandProperty Average
+
+    # Calculate the long-term moving average (e.g. 200 days)
+    $long_term = $altcoin.prices | Select-Object -Last 200 | Measure-Object -Average | Select-Object -ExpandProperty Average
+
+    # Predict the price difference based on the difference between the medium-term and long-term moving averages
+    if ($medium_term -gt $long_term) {
+        $prediction = "Buy"
+    } elseif ($medium_term -lt $long_term) {
+        $prediction = "Sell"
+    } else {
+        $prediction = "Hold"
+    }
+
+    # Add the prediction to the dataset
+    $altcoin | Add-Member -NotePropertyName "prediction" -NotePropertyValue $prediction
+}
+
+# Save the enriched dataset to a CSV file
+$response.data | Export-Csv -Path "altcoin_prices.csv" -NoTypeInformation
