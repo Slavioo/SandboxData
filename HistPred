@@ -1,0 +1,68 @@
+# Array of top 100 altcoins
+$altcoins = @(
+    "bitcoin",
+    "ethereum",
+    "binancecoin",
+    "ripple",
+    # Add more altcoins as needed
+)
+
+# API endpoint for historical data
+$endpoint = "https://api.coingecko.com/api/v3/coins/{coin}/market_chart?vs_currency={currency}&days={days}"
+
+# Currency to fetch data for
+$currency = "usd"
+
+# Number of days of historical data to fetch
+$days = 365
+
+foreach ($coin in $altcoins) {
+    # Fetch historical data from API
+    $url = $endpoint -f $coin, $currency, $days
+    $data = Invoke-RestMethod $url
+
+    # Parse historical data and save to CSV
+    $outputPath = "$coin.csv"
+    $data.prices | ForEach-Object {
+        $date = [DateTime]::FromFileTimeUtc($_[0]/1000)
+        $price = $_[1]
+        [PSCustomObject]@{
+            Date = $date
+            Price = $price
+        }
+    } | Export-Csv -Path $outputPath -NoTypeInformation
+
+    # Calculate moving averages
+    $ma7 = $data.prices | Select-Object -Last 7 | Measure-Object -Property $_[1] -Average
+    $ma14 = $data.prices | Select-Object -Last 14 | Measure-Object -Property $_[1] -Average
+    $ma30 = $data.prices | Select-Object -Last 30 | Measure-Object -Property $_[1] -Average
+
+    # Calculate RSI
+    $change = $data.prices | Measure-Object -Property $_[1] -Difference
+    $up = ($change | Where-Object { $_ -gt 0 } | Measure-Object -Sum).Sum / $change.Count
+    $down = -($change | Where-Object { $_ -lt 0 } | Measure-Object -Sum).Sum / $change.Count
+    $rs = $up / $down
+    $rsi = 100 - (100 / (1 + $rs))
+
+    # Make prediction based on RSI and moving averages
+    $prediction = "Neutral"
+    if ($rsi -gt 70 -and $ma7.Average -gt $ma14.Average -and $ma14.Average -gt $ma30.Average) {
+        $prediction = "Overbought"
+    }
+    elseif ($rsi -lt 30 -and $ma7.Average -lt $ma14.Average -and $ma14.Average -lt $ma30.Average) {
+        $prediction = "Oversold"
+    }
+    elseif ($rsi -gt 50 -and $ma7.Average -gt $ma14.Average) {
+        $prediction = "Bullish"
+    }
+    elseif ($rsi -lt 50 -and $ma7.Average -lt $ma14.Average) {
+        $prediction = "Bearish"
+    }
+
+    # Save prediction to CSV
+    $outputPath = "$coin-prediction.csv"
+    [PSCustomObject]@{
+        Date = Get-Date
+        Prediction = $prediction
+    } | Export-Csv -Path $outputPath -NoTypeInformation
+}
