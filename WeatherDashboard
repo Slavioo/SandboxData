@@ -8,7 +8,7 @@ $documentPath = "C:\Documents"
 
 # Create a QlikView document object and open it
 $qvDoc = New-Object -ComObject QlikTech.QlikView
-$qvDoc.Open("$documentPath\$documentName")
+$qvDoc.OpenDoc("$documentPath\$documentName")
 
 # Get the weather data from the API
 $weatherData = Invoke-WebRequest -Uri "$weatherApiUrl?q=London,uk&appid=$apiKey&units=metric" | ConvertFrom-Json
@@ -42,4 +42,4 @@ foreach ($forecast in $weatherData.list) {
 
 # Save and close the QlikView document
 $qvDoc.Save
-$qvDoc.Close
+$qvDoc.Close()
